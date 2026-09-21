@@ -113,6 +113,35 @@ supabase/
   schema.sql               # Database schema
 ```
 
+## How it works
+
+```
+City + industry ──▶ POST /api/search ──▶ Google Places (text search + details, up to 20)
+                                              │  de-duplicated on (business_name, city)
+                                              ▼
+                                       Supabase `leads` table
+                                              │
+             POST /api/qualify (per lead) ◀───┘
+                    │  GPT-4o, JSON mode
+                    ▼
+        outreach message + score (1–10) saved back to the lead
+```
+
+## Design notes
+
+- **Structured LLM output.** The qualify route uses OpenAI's JSON mode and clamps the returned score to 1–10, so a malformed or out-of-range answer can't corrupt the data.
+- **Dedup in the database.** `unique(business_name, city)` means repeat searches are safe; no application-level duplicate checks needed.
+- **Filterable, indexed queries.** The dashboard filters on city, industry, website status, rating, and review count. The schema indexes city, industry, website status, rating, and creation date.
+- **CSV export respects filters.** It exports the full filtered result set, not just the visible page.
+
+## Known limitations
+
+- **Row Level Security is effectively off.** `supabase/schema.sql` enables RLS but the only policy is `using (true)`, which applies to every role, including the public anon key. Before deploying, restrict it to authenticated users.
+- **The app has no login.** Its API routes are unauthenticated, so anyone who can reach a deployed instance can trigger Google Maps and OpenAI calls (which cost money). Add auth before exposing it.
+- **The score is LLM-generated.** The rubric lives in the prompt, so the same lead can score slightly differently on different runs. A deterministic scoring function would be more reproducible.
+- **20 results per search.** It uses a single Places text-search page and doesn't follow pagination tokens.
+- No automated tests.
+
 ## Deployment
 
 Deploy to Vercel:
